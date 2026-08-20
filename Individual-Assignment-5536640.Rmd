@@ -1,0 +1,161 @@
+---
+title: "Individual Assignment"
+author: "Fang-Yi,Su"
+date: "2024-10-22"
+output:
+  html_document:
+  toc: true
+  toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+```{r}
+library(tidyverse)
+
+options(width=100)
+```
+
+```{r}
+data <- read_csv("York_Footfall_data.csv")
+```
+
+Load in the data and check it for integrity/quality
+```{r}
+head(data)
+
+str(data)
+
+summary(data)
+```
+
+Provide a summary table that shows the following for each location where footfall was measured:
+- The date of the first and last day when footfall was measured at this location
+- The mean daily footfall
+- The standard deviation of the daily footfall
+- The highest daily footfall
+- The lowest daily footfall
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+data_2019 <- filter(data, format(Date, "%Y") == "2019")
+
+summary_table <- data_2019 %>%
+  group_by(LocationName) %>%
+  summarise(
+    FirstDay = min(Date),
+    LastDay = max(Date),
+    MeanDailyFootfall = mean(TotalCount, na.rm = TRUE),
+    StdDeviation = sd(TotalCount, na.rm = TRUE),
+    HighestDailyFootfall = max(TotalCount, na.rm = TRUE),
+    LowestDailyFootfall = min(TotalCount, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+summary_table
+```
+
+
+Plot the distribution of footfall across all days in the dataset. This should show the distributions separated by the locations where footfall is measured (i.e. for each LocationName).
+```{r}
+library(ggplot2)
+ggplot(data_2019, aes(x = TotalCount, fill = LocationName)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Footfall Across Locations in 2019",
+       x = "Daily Footfall",
+       y = "Density") +
+  theme_minimal() +
+  facet_wrap(~ LocationName, scales = "free") +
+  theme(legend.position = "none")  # Remove legend to avoid redundancy
+```
+
+
+Perform a t-test to compare the footfall on Coney Street to Stonegate. 
+```{r}
+library(dplyr)
+library(ggplot2)
+# Filter data for Coney Street and Stonegate
+coney_data <- filter(data_2019, LocationName == "Coney Street")
+stonegate_data <- filter(data_2019, LocationName == "Stonegate")
+
+# foot traffic data for Coney Street and Stonegate
+coney_footfall <- coney_data$TotalCount
+stonegate_footfall <- stonegate_data$TotalCount
+
+#An independent samples t-test
+t_test_result <- t.test(coney_footfall, stonegate_footfall,alternative = "two.sided", var.equal = FALSE) 
+
+#check results
+t_test_result
+```
+
+
+Perform an additional t-test to compare the footfall on Coney Street to Stonegate only on weekends (i.e. Saturdays/Sundays).
+```{r}
+library(dplyr)
+
+#Filter weekend data for Coney Street and Stonegate
+weekend_data <- data_2019 %>%
+  filter(LocationName %in% c("Coney Street", "Stonegate"), 
+         WeekDay %in% c("Saturday", "Sunday"))
+
+# foot traffic data for Coney Street and Stonegate
+coney_footfall_weekend <- weekend_data$TotalCount[weekend_data$LocationName == "Coney Street"]
+stonegate_footfall_weekend <- weekend_data$TotalCount[weekend_data$LocationName == "Stonegate"]
+
+#An independent samples t-test
+t_test_weekend_result <- t.test(coney_footfall_weekend, stonegate_footfall_weekend, alternative = "two.sided", var.equal = FALSE) 
+# check results
+t_test_weekend_result
+```
+
+This report aims to assess daily footfall data from York, compare with footfall data between Coney Street and Stonegate. 
+Use t-test analysis compare the data between these two locations. T-test is suitable for comparing the mean differences between two independent sample groups.
+
+*Daily Footfall T-Test Result*
+t-value: 3.3611, p-value: 0.0008186
+95% Confidence Interval: 670.9189 to 2555.7989
+Average Footfall on Coney Street: 20817.45
+Average Footfall on Stonegate: 19204.09
+
+The t-value of 3.3611 measures the degree of difference in footfall between Coney Street and Stonegate relative to the variability in footfall within each location’s data.Since this t-value of 3.3611 is larger than 0.
+Since p-value is less than 0.05, we can reject the null hypothesis and conclude that there is a significant difference in daily footfall between Coney Street and Stonegate. 
+(The null hypothesis in this t-test posits that there is no difference in the average daily footfall between Coney Street and Stonegate.)
+We are 95% confident that Coney Street’s average daily footfall exceeds Stonegate’s by at least 671 people but no more than 2556 people. This positive range also aligns with rejecting the null hypothesis, further supporting that the difference between the two locations is statistically significant.
+
+
+
+*Weekend Footfall T-Test Result*
+t-value: -0.29072, p-value:  0.7716
+95% Confidence Interval: -2362.601 to 1755.409
+Average Footfall on Coney Street: 25863.37
+Average Footfall on Stonegate: 26166.96
+
+The t-value of -0.29072 suggests there is no statistically significant difference in footfall between Coney Street and Stonegate on weekends.A negative t-value means Stonegate has a slightly higher footfall than Coney Street on weekends, though not significantly.
+Since the p-value is greater than 0.05, it suggests no statistically significant difference in footfall between Coney Street and Stonegate on weekends.
+The average footfall on Coney Street (25863.37) is slightly lower than Stonegate (26166.96), but the difference is not statistically significant.
+
+
+
+Overall Recommendations:
+Based on the analysis results,
+
+Daily Stall Location: Coney Street is recommended as the primary location for weekday stalls due to its consistently higher daily footfall. This choice will likely maximize exposure and the number of passers by.
+
+Weekend Stall Location: As there is no statistically significant difference in footfall between Coney Street and Stonegate on weekends, the promoter may select either location. The choice should be based on additional considerations, such as the target audience, operational costs, or other strategic.
+
+
+
+
+**Referencing**
+Xie, Yihui, JJ Allaire, and Jeffrey Horner. (2023) 'Markdown: Render Markdown with Commonmark.'
+
+Howell, D.C. (2017) Fundamental statistics for the behavioral sciences. 9th edn. Belmont, CA: Duxbury Press.
+
+**Word Count**
+799 words
+
+
+**Declaration**
+In this assignment, I utilized ChatGPT to assist in clarifying the structure of my work, troubleshooting code errors, and understanding the interpretation of generated data. All final decisions, analysis, and coding implementations remain my own

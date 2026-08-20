@@ -1,161 +1,554 @@
 ---
-title: "Individual Assignment"
-author: "Fang-Yi,Su"
-date: "2024-10-22"
+title: "Business Statistics Analysis"
+author: "Rody"
 output:
   html_document:
-  toc: true
-  toc_float:
-      collapsed: false
-      smooth_scroll: false
+    toc: yes
+    toc_depth: 3
 ---
-```{r}
+
+```{r setup, message=FALSE}
 library(tidyverse)
-
-options(width=100)
+library(gridExtra)
 ```
 
+---
+
+# Cardiovascular Disease Analysis
+
+This analysis examines the regional factors associated with Cardiovascular Disease (CVD) prevalence across local authority regions in England.
+
+The analysis includes:
+
+1. A descriptive summary of CVD prevalence and the key explanatory variables.
+2. A visualisation of the relationship between poverty and CVD prevalence.
+3. A correlation analysis examining the association between poverty and CVD prevalence.
+4. A multiple regression analysis examining the associations between overweight prevalence, smoking prevalence, poverty, wellbeing, and CVD prevalence.
+5. Regression diagnostics to assess the assumptions of the multiple regression model.
+
+---
+
+
+## Data Dictionary
+
+This dataset is from the UK Office for National Statistics. The variables are described in the table below.
+
+
+Variable | Description
+------------- | -------------
+area_name	 | Name of the local authority region
+area_code	 | Unique code identifying the local authority region
+Population | Total population living in the area
+Poverty	 | Percentage of the population living in poverty in the area
+CVD | Percentage of people in the area who have recently experienced Cardiovascular Disease (CVD)
+overweight | Percentage of people in the area classified as overweight
+smokers | Percentage of people in the area who smoke
+wellbeing | Average wellbeing score of people living in the area
+
+## Read Data and Data quality checks
 ```{r}
-data <- read_csv("York_Footfall_data.csv")
+# Load the dataset
+cvd_data <- read_csv("Cardio_Vascular_Disease.csv")
+
+## Check structure and column types
+str(cvd_data)
+
+# Summary statistics to identify missing and extreme values
+summary(cvd_data)
+
+# Check for missing values
+missing_summary <- summarise_all(cvd_data, ~ sum(is.na(.x)))
+missing_summary
+
+# Handle missing values by removing rows with NAs
+cvd_data_clean <- cvd_data %>% drop_na()
+
+# Visualize missing data with a bar chart
+missing_data <- data.frame(Variable = names(missing_summary), MissingValues = as.numeric(missing_summary[1, ]))
+ggplot(missing_data, aes(x = reorder(Variable, -MissingValues), y = MissingValues)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Missing Values of different Variable", x = "Variable", y = "Number of Missing Values") +
+  theme_minimal()
+
+# Identify outliers in CVD prevalence (e.g., top 5% values)
+outliers_cvd <- cvd_data_clean %>% filter(CVD > quantile(CVD, 0.95))
+outliers_cvd
+
 ```
 
-Load in the data and check it for integrity/quality
+## Visualisation of continuous variables
 ```{r}
-head(data)
+# Visualize the distribution of CVD prevalence
+ggplot(cvd_data_clean, aes(x = CVD)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of CVD Prevalence", x = "CVD Prevalence (%)", y = "Frequency") +
+  theme_minimal()
 
-str(data)
-
-summary(data)
+# Visualize distributions of other key variables
+grid.arrange(
+  ggplot(cvd_data_clean) + geom_histogram(aes(Poverty), bins = 25) + labs(title = "Poverty Distribution"),
+  ggplot(cvd_data_clean) + geom_histogram(aes(overweight), bins = 30) + labs(title = "Overweight Distribution"),
+  ggplot(cvd_data_clean) + geom_histogram(aes(smokers), bins = 30) + labs(title = "Smokers Distribution"),
+  ggplot(cvd_data_clean) + geom_histogram(aes(wellbeing), bins = 30) + labs(title = "Wellbeing Distribution"),
+  ncol = 2
+)
 ```
 
-Provide a summary table that shows the following for each location where footfall was measured:
-- The date of the first and last day when footfall was measured at this location
-- The mean daily footfall
-- The standard deviation of the daily footfall
-- The highest daily footfall
-- The lowest daily footfall
-
+## Check the discrete and categorical data
 ```{r}
-library(dplyr)
-library(ggplot2)
+# Count the number of rows for each unique value in the 'area_name' column
+arrange(count(cvd_data, area_name), desc(n))
+## Check for any duplicate or inconsistent area names.
 
-data_2019 <- filter(data, format(Date, "%Y") == "2019")
+# Count the number of unique 'area_code' values (categorical data)
+arrange(count(cvd_data, area_code), desc(n))
+## Each 'area_code' should uniquely identify a region. Ensure no duplicates.
 
-summary_table <- data_2019 %>%
-  group_by(LocationName) %>%
+# Check for the distribution of CVD prevalence across regions
+count(cvd_data_clean, CVD) %>%
+  arrange(desc(n))
+## The frequency of specific CVD prevalence values across regions.
+
+# Check for distributions of discrete variables: Population groupings
+summary(cvd_data_clean$Population)
+## Summarize population data to identify any outliers or unusual values.
+
+# Count regions by poverty group
+poverty_bins <- cvd_data_clean %>%
+  mutate(Poverty_Group = case_when(
+    Poverty < 10 ~ "Low",
+    Poverty >= 10 & Poverty < 20 ~ "Moderate",
+    Poverty >= 20 ~ "High"
+  ))
+arrange(count(poverty_bins, Poverty_Group), desc(n))
+## Verify the distribution of regions across different poverty levels.
+
+# Check for overweight groupings
+overweight_bins <- cvd_data_clean %>%
+  mutate(Overweight_Group = case_when(
+    overweight < 30 ~ "Low",
+    overweight >= 30 & overweight < 40 ~ "Moderate",
+    overweight >= 40 ~ "High"
+  ))
+arrange(count(overweight_bins, Overweight_Group), desc(n))
+## Assess prevalence of overweight categories across regions.
+
+# Check for smoking prevalence groupings
+smokers_bins <- cvd_data_clean %>%
+  mutate(Smokers_Group = case_when(
+    smokers < 15 ~ "Low",
+    smokers >= 15 & smokers < 25 ~ "Moderate",
+    smokers >= 25 ~ "High"
+  ))
+arrange(count(smokers_bins, Smokers_Group), desc(n))
+## Evaluate the spread of smoking rates across the dataset.
+```
+
+## Data Cleaning
+```{r}
+# Retain complete observations for the variables used in the analysis
+cvd_data_clean <- cvd_data %>%
+  filter(
+    !is.na(CVD),
+    !is.na(Poverty),
+    !is.na(overweight),
+    !is.na(smokers),
+    !is.na(wellbeing),
+    !is.na(Population)
+  )
+
+# Confirm the number of observations retained
+nrow(cvd_data_clean)
+```
+The original dataset contained **385 regional observations**. Missing values were identified across several variables, including CVD, poverty, population, overweight prevalence, smoking prevalence, and wellbeing. <br>
+
+For the statistical analyses, observations with missing values in the variables required for the analysis were excluded, resulting in **303 complete observations**. <br>
+
+Although some regions had relatively high CVD prevalence, these observations were retained because there was no evidence that they represented data-entry errors or invalid measurements. This avoids removing potentially meaningful regional variation solely on the basis of high observed CVD values.
+
+## Exploratory and Statistical Analysis
+### 1. Descriptive Analysis of CVD and Related Variables
+```{r}
+# Summary statistics of key variables
+summary_stats <- cvd_data_clean %>%
   summarise(
-    FirstDay = min(Date),
-    LastDay = max(Date),
-    MeanDailyFootfall = mean(TotalCount, na.rm = TRUE),
-    StdDeviation = sd(TotalCount, na.rm = TRUE),
-    HighestDailyFootfall = max(TotalCount, na.rm = TRUE),
-    LowestDailyFootfall = min(TotalCount, na.rm = TRUE)
-  ) %>%
-  ungroup()
+    Mean_CVD = mean(CVD, na.rm = TRUE),
+    SD_CVD = sd(CVD, na.rm = TRUE),
+    Mean_Overweight = mean(overweight, na.rm = TRUE),
+    SD_Overweight = sd(overweight, na.rm = TRUE),
+    Mean_Smokers = mean(smokers, na.rm = TRUE),
+    SD_Smokers = sd(smokers, na.rm = TRUE),
+    Mean_Wellbeing = mean(wellbeing, na.rm = TRUE),
+    SD_Wellbeing = sd(wellbeing, na.rm = TRUE),
+    Mean_Poverty = mean(Poverty, na.rm = TRUE),
+    SD_Poverty = sd(Poverty, na.rm = TRUE)
+  )
+summary_stats
 
-summary_table
 ```
 
-
-Plot the distribution of footfall across all days in the dataset. This should show the distributions separated by the locations where footfall is measured (i.e. for each LocationName).
+### 2. Visualization of the Relationship Between Poverty and CVD
 ```{r}
-library(ggplot2)
-ggplot(data_2019, aes(x = TotalCount, fill = LocationName)) +
-  geom_density(alpha = 0.5) +
-  labs(title = "Distribution of Footfall Across Locations in 2019",
-       x = "Daily Footfall",
-       y = "Density") +
-  theme_minimal() +
-  facet_wrap(~ LocationName, scales = "free") +
-  theme(legend.position = "none")  # Remove legend to avoid redundancy
+cvd_data_clean$Poverty <- as.numeric(cvd_data_clean$Poverty)
+cvd_data_clean$CVD <- as.numeric(cvd_data_clean$CVD)
+cvd_data_clean <- na.omit(cvd_data_clean)
+
+ggplot(cvd_data_clean, aes(x = Poverty, y = CVD)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red", se = TRUE) +
+  labs(title = "Poverty vs CVD Prevalence",
+       x = "Percentage of Population Living in Poverty",
+       y = "CVD Prevalence (%)") +
+  theme_minimal()
+
+# Test the linear association between poverty and CVD prevalence
+cor.test(cvd_data_clean$Poverty, cvd_data_clean$CVD)
 ```
 
+The scatter plot illustrates the relationship between the percentage of the population living in poverty and CVD prevalence across regions in England. Each point represents a region, while the fitted regression line shows the overall linear trend. <br>
 
-Perform a t-test to compare the footfall on Coney Street to Stonegate. 
+The results indicate a **negative relationship between poverty and CVD prevalence**, with regions reporting higher poverty rates tending to have lower observed CVD prevalence. Pearson's correlation confirmed a **statistically significant negative association** (**r = -.248, p < .001**). <br>
+
+However, the correlation is relatively modest and should **not be interpreted as evidence that higher poverty causes lower CVD prevalence**. Other demographic, socioeconomic, or health-related factors may contribute to the observed relationship.
+
+### 3. Multiple Regression Analysis
 ```{r}
-library(dplyr)
-library(ggplot2)
-# Filter data for Coney Street and Stonegate
-coney_data <- filter(data_2019, LocationName == "Coney Street")
-stonegate_data <- filter(data_2019, LocationName == "Stonegate")
+# Fit a multiple linear regression model to examine factors associated with CVD prevalence
+cvd_model <- lm(
+  CVD ~ overweight + smokers + Poverty + wellbeing,
+  data = cvd_data_clean
+)
 
-# foot traffic data for Coney Street and Stonegate
-coney_footfall <- coney_data$TotalCount
-stonegate_footfall <- stonegate_data$TotalCount
-
-#An independent samples t-test
-t_test_result <- t.test(coney_footfall, stonegate_footfall,alternative = "two.sided", var.equal = FALSE) 
-
-#check results
-t_test_result
+# Display regression results
+summary(cvd_model)
 ```
 
+The multiple regression model was **statistically significant**, *F*(4, 298) = 24.75, **p < .001**, and explained approximately **24.9% of the variation in CVD prevalence** (R² = .249; adjusted R² = .239). <br>
 
-Perform an additional t-test to compare the footfall on Coney Street to Stonegate only on weekends (i.e. Saturdays/Sundays).
+After controlling for the other variables in the model, **overweight prevalence was significantly positively associated with CVD prevalence** (**b = 0.110, p < .001**), indicating that regions with higher levels of overweight tended to have higher CVD prevalence. <br>
+
+**Smoking prevalence was also significantly positively associated with CVD prevalence** (**b = 0.120, p < .001**), suggesting that regions with higher smoking prevalence tended to have higher CVD prevalence after accounting for the other predictors. <br>
+
+In contrast, **poverty showed a statistically significant negative association with CVD prevalence** (**b = -0.184, p < .001**). This indicates that, within this dataset and after controlling for overweight, smoking, and wellbeing, regions with higher poverty rates tended to have lower observed CVD prevalence. <br>
+
+**Wellbeing was significantly positively associated with CVD prevalence** (**b = 1.800, p < .001**). After controlling for the other predictors, regions with higher average wellbeing scores tended to have higher observed CVD prevalence. <br>
+
+Overall, **overweight, smoking, poverty, and wellbeing were all statistically significant predictors of CVD prevalence** in the model. These findings describe statistical associations and **should not be interpreted as evidence of causal relationships**.
+
+### 4. Regression Diagnostics
+
 ```{r}
-library(dplyr)
-
-#Filter weekend data for Coney Street and Stonegate
-weekend_data <- data_2019 %>%
-  filter(LocationName %in% c("Coney Street", "Stonegate"), 
-         WeekDay %in% c("Saturday", "Sunday"))
-
-# foot traffic data for Coney Street and Stonegate
-coney_footfall_weekend <- weekend_data$TotalCount[weekend_data$LocationName == "Coney Street"]
-stonegate_footfall_weekend <- weekend_data$TotalCount[weekend_data$LocationName == "Stonegate"]
-
-#An independent samples t-test
-t_test_weekend_result <- t.test(coney_footfall_weekend, stonegate_footfall_weekend, alternative = "two.sided", var.equal = FALSE) 
-# check results
-t_test_weekend_result
+# Diagnostic plots for the multiple regression model
+par(mfrow = c(2, 2))
+plot(cvd_model)
+par(mfrow = c(1, 1))
 ```
 
-This report aims to assess daily footfall data from York, compare with footfall data between Coney Street and Stonegate. 
-Use t-test analysis compare the data between these two locations. T-test is suitable for comparing the mean differences between two independent sample groups.
+The regression diagnostic plots suggest that the model assumptions are **reasonably satisfied, although some minor deviations are present**. <br>
 
-*Daily Footfall T-Test Result*
-t-value: 3.3611, p-value: 0.0008186
-95% Confidence Interval: 670.9189 to 2555.7989
-Average Footfall on Coney Street: 20817.45
-Average Footfall on Stonegate: 19204.09
+The **Residuals vs Fitted** plot shows some curvature in the residual pattern, suggesting possible mild non-linearity. The **Q-Q plot** indicates that the residuals follow the expected distribution reasonably well across most observations, although some deviations are visible in the tails. <br>
 
-The t-value of 3.3611 measures the degree of difference in footfall between Coney Street and Stonegate relative to the variability in footfall within each location’s data.Since this t-value of 3.3611 is larger than 0.
-Since p-value is less than 0.05, we can reject the null hypothesis and conclude that there is a significant difference in daily footfall between Coney Street and Stonegate. 
-(The null hypothesis in this t-test posits that there is no difference in the average daily footfall between Coney Street and Stonegate.)
-We are 95% confident that Coney Street’s average daily footfall exceeds Stonegate’s by at least 671 people but no more than 2556 people. This positive range also aligns with rejecting the null hypothesis, further supporting that the difference between the two locations is statistically significant.
+The **Scale-Location** plot suggests some variation in residual spread across fitted values, indicating possible mild heteroscedasticity. The **Residuals vs Leverage** plot identifies a small number of observations with relatively higher leverage, but no clearly extreme influential observations are apparent from the diagnostic plot. <br>
+
+Overall, the diagnostic results do not indicate severe violations that would invalidate the regression analysis, but the **minor departures from linearity, normality, and constant variance should be considered when interpreting the model estimates**.
+
+## Descriptive Statistics
+
+Table 1 presents descriptive statistics for the key demographic and health-related variables included in the analysis.
+
+```{r, echo=FALSE}
+# Calculate summary statistics for key variables
+table1 <- cvd_data_clean %>%
+  reframe(
+    Variable = c("CVD (%)", "Poverty (%)", "Overweight (%)", "Smokers (%)", "Wellbeing"),
+    Mean = c(mean(CVD, na.rm = TRUE), mean(Poverty, na.rm = TRUE), mean(overweight, na.rm = TRUE),
+             mean(smokers, na.rm = TRUE), mean(wellbeing, na.rm = TRUE)),
+    SD = c(sd(CVD, na.rm = TRUE), sd(Poverty, na.rm = TRUE), sd(overweight, na.rm = TRUE),
+           sd(smokers, na.rm = TRUE), sd(wellbeing, na.rm = TRUE)),
+    Min = c(min(CVD, na.rm = TRUE), min(Poverty, na.rm = TRUE), min(overweight, na.rm = TRUE),
+            min(smokers, na.rm = TRUE), min(wellbeing, na.rm = TRUE)),
+    Max = c(max(CVD, na.rm = TRUE), max(Poverty, na.rm = TRUE), max(overweight, na.rm = TRUE),
+            max(smokers, na.rm = TRUE), max(wellbeing, na.rm = TRUE))
+  )
+
+# Display Table 1
+knitr::kable(
+  table1,
+  caption = "Table 1. Summary of demographic and health-related variables",
+  digits = 2,
+  align = "c"
+)
+```
+Table 1 summarises the key demographic and health-related variables across the **303 regions included in the analysis**. <br>
+
+The mean **CVD prevalence was 12.45%** (SD = 2.17), ranging from **7.90% to 17.80%**. The average **poverty rate was 19.36%** (SD = 3.48), with values ranging from 12.90% to 30.70%. <br>
+
+The mean **overweight prevalence was 25.54%** (SD = 5.61), while the mean **smoking prevalence was 12.87%** (SD = 3.77). The average **wellbeing score was 7.42** (SD = 0.24). <br>
+
+These descriptive statistics indicate substantial regional variation in CVD prevalence and several of the health and socioeconomic factors examined in the subsequent regression analysis.
+
+## Summary
+
+The analysis identified significant associations between **CVD prevalence and all four factors examined: overweight prevalence, smoking prevalence, poverty, and wellbeing**. The multiple regression model was statistically significant and explained approximately **24.9% of the variation in CVD prevalence** across the regions (R² = .249). <br>
+
+After controlling for the other predictors, **higher overweight prevalence** (**b = 0.110, p < .001**) and **higher smoking prevalence** (**b = 0.120, p < .001**) were significantly associated with **higher CVD prevalence**. <br>
+
+In contrast, **poverty was significantly negatively associated with CVD prevalence** (**b = -0.184, p < .001**). This finding was consistent with the bivariate analysis, which also showed a statistically significant negative correlation between poverty and CVD prevalence (**r = -.248, p < .001**). <br>
+
+**Wellbeing was significantly positively associated with CVD prevalence** after controlling for the other predictors (**b = 1.800, p < .001**). Although this direction may appear counterintuitive, the analysis does not establish why this relationship occurs, and it should therefore be interpreted cautiously. <br>
+
+Overall, the findings suggest that **regional differences in overweight prevalence, smoking prevalence, poverty, and wellbeing are all statistically associated with CVD prevalence** in this dataset. However, the model explains only part of the regional variation in CVD, indicating that **additional factors not included in the analysis are also likely to be relevant**. As this analysis is based on observational regional-level data, the results represent **associations rather than causal effects**.
+***
+
+---
+
+# Customer Satisfaction Analysis
+
+This analysis examines the factors associated with customer satisfaction across furniture retail stores, with a particular focus on the relationship between delivery time and socio-economic status (SES).
+
+The analysis includes:
+
+1. A descriptive summary of customer satisfaction, staff satisfaction, delivery time, product range status, and socio-economic status (SES).
+2. A visualisation of the distribution of delivery times across stores.
+3. A multiple regression analysis examining the relationship between delivery time, staff satisfaction, product range status, SES, and customer satisfaction.
+4. An interaction analysis examining whether the relationship between delivery time and customer satisfaction varies across SES groups.
+
+---
+
+## Data Dictionary
+
+The dataset contains store-level customer satisfaction and operational information from a furniture retail company.
+
+Variable | Description
+------------- | -------------
+SES_category | Socio-economic status category of the store (e.g., Low, Medium, High)
+customer.satisfaction | Average customer satisfaction score for the store
+staff.satisfaction | Average staff job satisfaction score for the store
+delivery.time | Average delivery time for large and custom items
+new_range | Indicates whether the store was carrying a new range of products (TRUE/FALSE)
+
+## Read Data and Data quality checks
+```{r}
+cust_data <- read.csv("cust_satisfaction.csv")
+
+# Inspect the data
+str(cust_data)
+
+# Summary of the dataset
+summary(cust_data)
+
+# Check for missing values
+missing_summary <- summarise_all(cust_data, ~ sum(is.na(.x)))
+missing_summary
+
+# No missing values were identified; retain all observations for analysis
+cust_data_clean <- cust_data
+
+# Visualize missing data with a bar chart
+missing_data <- data.frame(Variable = names(missing_summary), MissingValues = as.numeric(missing_summary[1, ]))
+ggplot(missing_data, aes(x = reorder(Variable, -MissingValues), y = MissingValues)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Missing Values of Different Variables", x = "Variable", y = "Number of Missing Values") +
+  theme_minimal()
+```
+The dataset contained **300 store-level observations**, with **no missing values identified across the variables examined**. The SES categories were evenly represented, with **100 stores each in the High, Medium, and Low SES groups**. As no invalid SES categories or missing observations were identified, all 300 observations were retained for subsequent analysis.
+
+## Visualisation of continuous variables
+```{r}
+# Define continuius variables
+continuous_vars <- c("customer.satisfaction", "staff.satisfaction", "delivery.time")
+
+# Histogram for each continuous variable
+for (var in continuous_vars) {
+  print(
+    ggplot(cust_data_clean, aes_string(x = var)) +
+      geom_histogram(binwidth = 1, fill = "steelblue", color = "black", alpha = 0.7) +
+      labs(title = paste("Histogram of", var), x = var, y = "Frequency") +
+      theme_minimal()
+  )
+}
+
+# Boxplot to detect outliers
+for (var in continuous_vars) {
+  print(
+    ggplot(cust_data_clean, aes_string(y = var)) +
+      geom_boxplot(fill = "orange", color = "black", outlier.color = "red") +
+      labs(title = paste("Boxplot of", var), y = var) +
+      theme_minimal()
+  )
+}
+
+# Scatterplot Matrix to view the relationship between variables
+pairs(cust_data_clean[continuous_vars],
+      main = "Scatterplot Matrix",
+      col = "blue")
+
+```
+
+## Check the discrete and categorical data
+```{r}
+# Check the distribution of SES_category
+arrange(count(cust_data_clean, SES_category), desc(n))
+
+# Check the distribution of new_range
+arrange(count(cust_data_clean, new_range), desc(n))
+```
 
 
+## Exploratory and Statistical Analysis
 
-*Weekend Footfall T-Test Result*
-t-value: -0.29072, p-value:  0.7716
-95% Confidence Interval: -2362.601 to 1755.409
-Average Footfall on Coney Street: 25863.37
-Average Footfall on Stonegate: 26166.96
+### 1. Descriptive Analysis of Variables and Visualize the distribution.
+```{r}
+# Summary statistics
+summary_stats <- cust_data_clean %>%
+  summarise(
+    Mean_Cust_Sat = mean(customer.satisfaction),
+    SD_Cust_Sat = sd(customer.satisfaction),
+    Median_Cust_Sat = median(customer.satisfaction),
+    Mean_Staff_Sat = mean(staff.satisfaction),
+    SD_Staff_Sat = sd(staff.satisfaction),
+    Median_Delivery_Time = median(delivery.time),
+    Mean_Delivery_Time = mean(delivery.time),
+    SD_Delivery_Time = sd(delivery.time)
+  )
 
-The t-value of -0.29072 suggests there is no statistically significant difference in footfall between Coney Street and Stonegate on weekends.A negative t-value means Stonegate has a slightly higher footfall than Coney Street on weekends, though not significantly.
-Since the p-value is greater than 0.05, it suggests no statistically significant difference in footfall between Coney Street and Stonegate on weekends.
-The average footfall on Coney Street (25863.37) is slightly lower than Stonegate (26166.96), but the difference is not statistically significant.
-
-
-
-Overall Recommendations:
-Based on the analysis results,
-
-Daily Stall Location: Coney Street is recommended as the primary location for weekday stalls due to its consistently higher daily footfall. This choice will likely maximize exposure and the number of passers by.
-
-Weekend Stall Location: As there is no statistically significant difference in footfall between Coney Street and Stonegate on weekends, the promoter may select either location. The choice should be based on additional considerations, such as the target audience, operational costs, or other strategic.
-
-
+# Print summary table
+summary_stats
 
 
-**Referencing**
-Xie, Yihui, JJ Allaire, and Jeffrey Horner. (2023) 'Markdown: Render Markdown with Commonmark.'
-
-Howell, D.C. (2017) Fundamental statistics for the behavioral sciences. 9th edn. Belmont, CA: Duxbury Press.
-
-**Word Count**
-799 words
+# Visualize the distribution of customer satisfaction
+ggplot(cust_data_clean, aes(x = customer.satisfaction)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Customer Satisfaction", x = "Customer Satisfaction (Score)", y = "Frequency") +
+  theme_minimal()
 
 
-**Declaration**
-In this assignment, I utilized ChatGPT to assist in clarifying the structure of my work, troubleshooting code errors, and understanding the interpretation of generated data. All final decisions, analysis, and coding implementations remain my own
+# Visualize the distribution of staff satisfaction
+ggplot(cust_data_clean, aes(x = staff.satisfaction)) +
+  geom_histogram(binwidth = 1, fill = "cyan", color = "black") +
+  labs(title = "Distribution of Staff Satisfaction", x = "Staff Satisfaction (Score)", y = "Frequency") + theme_minimal()
+
+
+# Visualize the distribution of Delivery Times
+ggplot(cust_data_clean, aes(x = delivery.time)) +
+  geom_histogram(binwidth = 5, fill = "pink", color = "black") +
+  labs(title = "Distribution of Delivery Times", x = "Delivery Time (Days)", y = "Frequency") +
+  theme_minimal()
+
+
+# Visualize the distribution of Product Range Status
+new_range_counts <- cust_data_clean %>%
+  count(new_range) # Count of stores carrying a new range of products
+
+new_range_counts # Print the counts
+
+ggplot(new_range_counts, aes(x = new_range, y = n)) +
+  geom_bar(stat = "identity", fill = "lightyellow", color = "black") +
+  labs(title = "Distribution of Product Range Status", x = "New Range Status", y = "Count") +
+  theme_minimal()
+
+
+# Visualize the distribution of Socio-Economic Status (SES)
+ses_counts <- cust_data_clean %>%
+  count(SES_category) # Count of stores in each SES category
+
+ses_counts # Print the counts
+
+ggplot(ses_counts, aes(x = SES_category, y = n)) +
+  geom_bar(stat = "identity", fill = "purple", color = "black") +
+  labs(title = "Distribution of Socio-Economic Status (SES)", x = "SES Category", y = "Count") +
+  theme_minimal()
+
+# Visualize density plots for continuous variables to better capture distribution characteristics.
+ggplot(cust_data_clean, aes(x = customer.satisfaction)) +
+  geom_density(fill = "lightblue", alpha = 0.6) +
+  labs(title = "Density Plot of Customer Satisfaction", x = "Customer Satisfaction", y = "Density")
+```
+
+
+### 2. Multiple Regression Analysis
+```{r}
+# Convert categorical variables
+cust_data_clean$new_range <- as.factor(cust_data_clean$new_range)
+
+# Linear regression model
+linear_model <- lm(customer.satisfaction ~ delivery.time + staff.satisfaction + new_range + SES_category, data = cust_data_clean)
+
+# Summary of linear model
+summary(linear_model)
+
+```
+
+The multiple regression model was **statistically significant**, *F*(5, 294) = 47.53, **p < .001**, and explained approximately **44.7% of the variation in customer satisfaction** (R² = .447; adjusted R² = .438). <br>
+
+After controlling for the other variables in the model, **delivery time was significantly negatively associated with customer satisfaction** (**b = -0.017, p < .001**). This indicates that longer delivery times were associated with lower customer satisfaction scores. <br>
+
+**Staff satisfaction showed a significant positive association with customer satisfaction** (**b = 0.351, p < .001**), suggesting that stores with higher staff satisfaction also tended to report higher customer satisfaction. <br>
+
+**New product range status was not statistically significant** (**b = 0.094, p = .404**), providing insufficient evidence that carrying the new product range was independently associated with customer satisfaction. <br>
+
+Using **High SES as the reference category**, customer satisfaction in **Low SES stores was not significantly different from High SES stores at the 5% level** (**b = -0.256, p = .066**). In contrast, **Medium SES stores had significantly higher customer satisfaction than High SES stores** (**b = 1.209, p < .001**). <br>
+
+Overall, the results indicate that **delivery time, staff satisfaction, and SES were important predictors of customer satisfaction**, whereas **new product range status was not statistically significant**.
+
+#### Regression Diagnostics
+
+```{r}
+# Diagnostic plots for the multiple regression model
+par(mfrow = c(2, 2))
+plot(linear_model)
+par(mfrow = c(1, 1))
+```
+The regression diagnostic plots suggest that the model assumptions were **reasonably satisfied overall, although some deviations were present**. <br>
+
+The **Residuals vs Fitted** plot showed some curvature in the residual pattern, suggesting that the relationships may not be perfectly linear. The **Q-Q plot** showed that residuals followed the expected distribution reasonably closely across most observations, although some deviations were visible in the tails. <br>
+
+The **Scale-Location** plot suggested some variation in residual spread across fitted values, indicating possible mild heteroscedasticity. The **Residuals vs Leverage** plot identified several observations with relatively higher residuals or leverage, but no clearly extreme influential observations were apparent from the diagnostic plot. <br>
+
+Overall, the diagnostics indicate that the regression model provides a reasonable approximation of the relationships in the data, although the results should be interpreted with some caution given the observed departures from ideal model assumptions.
+
+
+### 3. Interaction Between Delivery Time and SES
+```{r}
+# Interaction model
+interaction_model <- lm(customer.satisfaction ~ delivery.time * SES_category + staff.satisfaction + new_range, data = cust_data_clean)
+
+# Summary of interaction model
+summary(interaction_model)
+
+# Visualization of interaction effect
+ggplot(cust_data_clean, aes(x = delivery.time, y = customer.satisfaction, color = SES_category)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(aes(group = SES_category), method = "lm", formula = y ~ x, se = FALSE) +
+  labs(title = "Interaction Effect: Delivery Time and SES on Customer Satisfaction", 
+       x = "Delivery Time", y = "Customer Satisfaction") +
+  theme_minimal()
+```
+The interaction model was **statistically significant**, *F*(7, 292) = 35.57, **p < .001**, explaining approximately **46.0% of the variation in customer satisfaction** (R² = .460; adjusted R² = .447). <br>
+
+For **High SES stores**, which served as the reference category, longer delivery times were significantly associated with lower customer satisfaction (**b = -0.036, p < .001**). <br>
+
+The interaction between **delivery time and Low SES was statistically significant** (**b = 0.032, p = .008**). This indicates that the negative relationship between delivery time and customer satisfaction was **significantly weaker in Low SES stores than in High SES stores**. <br>
+
+The interaction between **delivery time and Medium SES was not statistically significant** (**b = 0.020, p = .105**). Therefore, there was insufficient evidence that the effect of delivery time differed significantly between Medium and High SES stores. <br>
+
+The interaction plot illustrates these differences: customer satisfaction declines more strongly as delivery time increases among **High SES stores**, while the relationship is considerably flatter among **Low SES stores**. The slope for Medium SES stores is also negative, but its difference from the High SES slope was not statistically significant. <br>
+
+Overall, the results provide evidence that **SES moderates the relationship between delivery time and customer satisfaction**, particularly when comparing **High and Low SES stores**.
+
+
+## Summary
+
+The analysis identified several operational and socio-economic factors associated with **customer satisfaction across furniture retail stores**. <br>
+
+The main-effects regression model explained approximately **44.7% of the variation in customer satisfaction** (R² = .447). **Longer delivery times were significantly associated with lower customer satisfaction** (**b = -0.017, p < .001**), while **higher staff satisfaction was significantly associated with higher customer satisfaction** (**b = 0.351, p < .001**). <br>
+
+In contrast, **new product range status was not a statistically significant predictor of customer satisfaction** (**b = 0.094, p = .404**), suggesting that operational factors such as delivery performance and staff satisfaction were more strongly associated with customer satisfaction in this dataset. <br>
+
+The interaction analysis further showed that **SES moderated the relationship between delivery time and customer satisfaction**. The negative association between delivery time and customer satisfaction was **significantly weaker in Low SES stores than in High SES stores** (**interaction b = 0.032, p = .008**). However, the difference between Medium and High SES stores was not statistically significant (**interaction b = 0.020, p = .105**). <br>
+
+From a business perspective, the findings suggest that **reducing delivery times may be particularly relevant for maintaining customer satisfaction in High SES stores**, while improving **staff satisfaction may support better customer experiences across stores more generally**. The results also suggest that introducing a new product range alone may not be sufficient to improve customer satisfaction. <br>
+
+Overall, the analysis demonstrates that **customer satisfaction is associated not only with operational performance but also with the socio-economic context in which stores operate**. These findings represent statistical associations and **should not be interpreted as evidence of causal relationships**.
+
+***
